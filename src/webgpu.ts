@@ -1009,9 +1009,9 @@ export class GpuDevice implements Strict<wit.GpuDevice> {
             }),
         );
     }
-    createRenderPipeline(
+    private renderPipelineDescriptor(
         descriptor: wit.GpuRenderPipelineDescriptor,
-    ): wit.GpuRenderPipeline {
+    ): GPURenderPipelineDescriptor {
         let buffers: (GPUVertexBufferLayout | undefined)[] | undefined =
             undefined;
         if (descriptor.vertex.buffers) {
@@ -1093,14 +1093,19 @@ export class GpuDevice implements Strict<wit.GpuDevice> {
             };
         }
 
+        return {
+            ...descriptor,
+            vertex,
+            depthStencil,
+            fragment,
+            layout: convertGpuLayoutWasiToWeb(descriptor.layout),
+        };
+    }
+    createRenderPipeline(
+        descriptor: wit.GpuRenderPipelineDescriptor,
+    ): wit.GpuRenderPipeline {
         return new GpuRenderPipeline(
-            this[inner].createRenderPipeline({
-                ...descriptor,
-                vertex,
-                depthStencil,
-                fragment,
-                layout: convertGpuLayoutWasiToWeb(descriptor.layout),
-            }),
+            this[inner].createRenderPipeline(this.renderPipelineDescriptor(descriptor)),
         );
     }
     async createComputePipelineAsync(
@@ -1111,7 +1116,22 @@ export class GpuDevice implements Strict<wit.GpuDevice> {
     async createRenderPipelineAsync(
         descriptor: wit.GpuRenderPipelineDescriptor,
     ): Promise<wit.GpuRenderPipeline> {
-        throw new Todo();
+        try {
+            const pipeline = await this[inner].createRenderPipelineAsync(
+                this.renderPipelineDescriptor(descriptor),
+            );
+            return new GpuRenderPipeline(pipeline);
+        } catch (error) {
+            const failure: wit.CreatePipelineError = {
+                kind: {
+                    tag: "gpu-pipeline-error",
+                    val: error instanceof Error && "reason" in error && error.reason === "validation"
+                        ? "validation" : "internal",
+                },
+                message: error instanceof Error ? error.message : String(error),
+            };
+            throw failure;
+        }
     }
     createCommandEncoder(
         descriptor?: wit.GpuCommandEncoderDescriptor,
